@@ -10,36 +10,39 @@ This repo is the public bootstrap entrypoint.
 curl -fsSL https://get.jetify.com/devbox | bash
 ```
 
-2. Install `abc`
+2. Install `abc` globally from this flake
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/soxhub/bootstrap/main/bootstrap.sh | bash
+devbox global add github:soxhub/bootstrap#abc
 ```
 
-Optional: install a pinned `abc` version:
+## One-time shell setup for Devbox globals
+
+Run this once to load Devbox global binaries in your current shell and future shells:
 
 ```bash
-ABC_VERSION=v1.9.0 curl -fsSL https://raw.githubusercontent.com/soxhub/bootstrap/main/bootstrap.sh | bash
+eval "$(devbox global shellenv)"
+grep -q 'devbox global shellenv' ~/.zshrc || echo 'eval "$(devbox global shellenv)"' >> ~/.zshrc
 ```
 
-3. Verify
+## Verify
 
 ```bash
 abc --version
 ```
 
-4. Initialize dev environment
+## Initialize dev environment
 
 ```bash
 abc init
 ```
 
-## Notes
+## Optional: pin abc version
 
-- This bootstrap flow is intentionally minimal: install Devbox first, then `abc`.
-- The installer script downloads `abc` from `soxhub/bootstrap` release assets.
-- Releases are versioned by tag (for example `v1.9.0`) and can be pinned via `ABC_VERSION`.
-- On macOS, binaries are expected to be named:
-  - `abc-darwin-arm64`
-  - `abc-darwin-x64`
+By default, `abc` resolves to the latest bootstrap release binary on first run.
+To pin a version for download, set `ABC_VERSION`:
+
+```bash
+ABC_VERSION=v1.9.0 abc --version
+```
 
