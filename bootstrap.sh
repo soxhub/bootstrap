@@ -1,89 +1,120 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-echo "Welcome to the AuditBoard Bootstrapper!"
-echo
-echo "This script will install Homebrew, Git, and the GitHub CLI."
-echo "It will also authenticate you with GitHub and clone the AuditBoard dev environment."
-echo
-echo "Press any key to get started..."
-read
+REPO="soxhub/bootstrap"
+INSTALL_DIR="${HOME}/.local/bin"
+ABC_VERSION="${ABC_VERSION:-latest}"
 
-### Install Homebrew
-# This also installs the Xcode Command Line Tools
-if ! command -v brew &> /dev/null; then
-    echo "First we will installing Homebrew."
-    echo "Press any key to continue..."
-    read
+log() {
+  echo "[bootstrap] $*"
+}
 
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+require_macos() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    log "This installer currently supports macOS only."
+    exit 1
+  fi
+}
 
-    # Homebrew instructs users to run these commands, let's just do it for them
-    echo >> $HOME/.zprofile
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
-    eval "$(/opt/homebrew/bin/brew shellenv)"
+detect_asset_name() {
+  local arch
+  arch="$(uname -m)"
 
-    echo "Homebrew installed!"
-else
-    echo "Homebrew already installed"
-fi
+  case "$arch" in
+    arm64)
+      echo "abc-darwin-arm64"
+      ;;
+    x86_64)
+      echo "abc-darwin-x64"
+      ;;
+    *)
+      log "Unsupported CPU architecture: $arch"
+      exit 1
+      ;;
+  esac
+}
 
-echo
-echo "Next we will install Git and the GitHub CLI."
-echo
-echo "Press any key to continue..."
-read
+ensure_devbox() {
+  if command -v devbox >/dev/null 2>&1; then
+    log "Devbox already installed"
+    return
+  fi
 
-brew install git
-brew install gh
+  log "Installing Devbox..."
+  curl -fsSL https://get.jetify.com/devbox | bash
+  log "Devbox installed"
+}
 
-if gh auth status -h github.com > /dev/null; then
-    echo "GitHub CLI already authenticated"
-else
-    echo "Now we will authenticate with GitHub"
-    echo "Please sign in when prompted. Make sure to authorize the 'AuditBoard' GitHub account if requested."
-    echo
-    echo "Press any key to continue..."
-    read
-    gh auth login -h github.com -p https -w
-fi
+install_abc_from_release() {
+  local asset_name
+  local download_url
+  local target
+  local release_ref
 
-# This may not be necessary 
-gh auth setup-git
+  asset_name="$(detect_asset_name)"
 
-echo
-echo "Finally we will clone the AuditBoard dev environment."
-echo
-echo "Press any key to continue..."
-read
-
-if [ ! -d ~/.auditboard ]; then
-    # This is a trick to output to both stdout and a file descriptor for inspection
-    exec 5>&1
-    # Use gh repo clone to get better error messages
-    res=$(gh repo clone soxhub/auditboard-dev-env ~/.auditboard -- --branch=v2 --depth=1 |& tee /dev/fd/5)
-    if [[ $res == *"Authorize in your web browser"* ]]; then
-        echo "You are not currently authorized to access the AuditBoard (soxhub) GitHub Account."
-        echo "Please ensure that IT has given you access and then open the above link in your browser."
-        echo "Once you have authorized the account, re-run this script."
-        exit 1
+  if [[ "$ABC_VERSION" == "latest" ]]; then
+    release_ref="latest"
+    download_url="https://github.com/${REPO}/releases/latest/download/${asset_name}"
+  else
+    if [[ "$ABC_VERSION" =~ ^v ]]; then
+      release_ref="$ABC_VERSION"
+    else
+      release_ref="v${ABC_VERSION}"
     fi
-    if [ ! -d ~/.auditboard/.git ]; then
-        echo "Failed to clone the AuditBoard dev environment."
-        echo "Please check the error message above and try again."
-        exit 1
-    fi
-else
-    echo "AuditBoard dev environment already cloned"
-fi
+    download_url="https://github.com/${REPO}/releases/download/${release_ref}/${asset_name}"
+  fi
 
-if ! grep -q "AB_DEV_HOME" "$HOME/.zshenv"; then
-    echo "export AB_DEV_HOME=~/.auditboard" >> ~/.zshenv
-fi
+  mkdir -p "$INSTALL_DIR"
+  target="${INSTALL_DIR}/abc"
 
-if ! grep -q "\$AB_DEV_HOME/global/bin" "$HOME/.zshenv"; then
-    echo "export PATH=\$PATH:\$AB_DEV_HOME/global/bin" >> ~/.zshenv
-fi
+  log "Downloading ${asset_name} from ${REPO} release ${release_ref}..."
+  if ! curl -fL "$download_url" -o "$target"; then
+    log "Failed to download abc from release assets."
+    log "Expected URL: ${download_url}"
+    log "Make sure ${REPO} has a release with asset ${asset_name}."
+    exit 1
+  fi
 
-echo "Bootstrapping done. Please open a new terminal and run \`ab-setup-dev\` to finish setup."
+  chmod +x "$target"
+  log "Installed abc to ${target}"
+}
+
+print_path_hint() {
+  case ":$PATH:" in
+    *":${INSTALL_DIR}:"*)
+      ;;
+    *)
+      log "Add ${INSTALL_DIR} to PATH if needed:"
+      log "  echo 'export PATH=\"${INSTALL_DIR}:$PATH\"' >> ~/.zshrc"
+      ;;
+  esac
+}
+
+main() {
+  require_macos
+  log "Starting AuditBoard bootstrap"
+  log "Requested abc version: ${ABC_VERSION}"
+
+  ensure_devbox
+
+  if command -v abc >/dev/null 2>&1; then
+    log "abc already installed at $(command -v abc)"
+  else
+    install_abc_from_release
+  fi
+
+  print_path_hint
+
+  if command -v abc >/dev/null 2>&1; then
+    log "abc version: $(abc --version)"
+    log "Next step: run 'abc init'"
+  else
+    log "abc is not on PATH in this shell yet."
+    log "Run: ${INSTALL_DIR}/abc --version"
+    log "Then run: ${INSTALL_DIR}/abc init"
+  fi
+}
+
+main "$@"
